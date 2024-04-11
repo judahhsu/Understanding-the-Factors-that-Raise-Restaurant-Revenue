@@ -1,0 +1,570 @@
+---
+title: "All Code"
+date: "2024-03-15"
+output: html_document
+---
+
+### ALL CODE COMBINED
+
+Data Analysis on Restaurant Revenue Data
+
+Divided into four sections (Jared's code, Judah's code, Hubert's code, Brett's code):
+1. Multiple Regression and some exploration by cuisine type
+2. EDA,PCA, Decision Trees
+3. CV, bootstrap, model selection 
+4. LDA, QDA, EDA (multicollinearity)
+
+
+Jared's Code (Multiple Regression and some exploration by cuisine type):
+### Preliminary
+```{r}
+# Load necessary libraries
+library(tidyverse)
+library(corrplot)
+library(caret)
+library(MASS)
+library(leaps)
+library(ISLR)
+revenue <- read.csv("~/Downloads/Restaurant_revenue (1).csv")
+```
+```{r}
+head(revenue)
+unique(revenue[4])
+```
+```{r}
+# Data grouped by cuisine:
+Japanese <- revenue %>%
+  filter(Cuisine_Type == 'Japanese')
+Italian <- revenue %>%
+  filter(Cuisine_Type == 'Italian')
+American <- revenue %>%
+  filter(Cuisine_Type == 'American')
+Mexican <- revenue %>%
+  filter(Cuisine_Type == 'Mexican')
+```
+```{r}
+# Correlation matrix
+corrplot(cor(revenue[,-4]),tl.col="black")
+# Mean revenue by cuisine type
+revenue %>%
+  group_by(Cuisine_Type) %>%
+  summarise(mean(Monthly_Revenue),mean(Number_of_Customers),mean(Menu_Price),mean(Marketing_Spend),mean(Average_Customer_Spending),mean(Promotions),mean(Reviews))
+# Can add corrplot per cuisine type
+```
+
+### Multiple regression with stepwise selection (By AIC)
+```{r}
+# Fit a linear model where Monthly_Revenue is predicted by all other variables in the 'revenue' dataset
+full <- lm(Monthly_Revenue ~ ., data = revenue)
+
+# Perform stepwise model selection to identify the optimal model based on AIC
+# 'direction = "both"' means the algorithm can both add and remove predictors to find the best model
+# 'trace = FALSE' suppresses the printing of information at each step, making the output cleaner
+step.model <- stepAIC(full, direction = "both", trace = FALSE)
+```
+
+By distinct cuisine types:
+```{r}
+# Fit a linear model predicting Monthly_Revenue from all but the 4th column in 'Japanese'.
+fullj <- lm(Monthly_Revenue ~ ., data = Japanese[-4])
+
+# Use stepwise regression to optimize model predictors, allowing both addition and removal.
+step.model <- stepAIC(fullj, direction = "both", trace = FALSE)
+
+# Output a summary of the optimized model, including coefficients and diagnostics.
+summary(step.model)
+```
+
+```{r}
+# Fit a linear model for Monthly_Revenue using all variables except the 4th in the 'Mexican' dataset
+fullm <- lm(Monthly_Revenue ~ ., data = Mexican[-4])
+# Perform stepwise regression to optimize the model, allowing both addition and removal of variables
+step.model <- stepAIC(fullm, direction = "both", trace = FALSE)
+# Print a summary of the optimized model to review model performance and variable significance
+summary(step.model)
+```
+
+```{r}
+# Fit a linear model for Monthly_Revenue using all variables except the 4th in the 'Italian' dataset
+fulli <- lm(Monthly_Revenue ~ ., data = Italian[-4])
+# Perform stepwise regression to optimize the model, considering both adding and removing predictors
+step.model <- stepAIC(fulli, direction = "both", trace = FALSE)
+# Output a summary of the stepwise optimized model for evaluation
+summary(step.model)
+```
+
+```{r}
+# Fit a linear model predicting Monthly_Revenue from all variables except the 4th in 'American' dataset
+fulla <- lm(Monthly_Revenue ~ ., data = American[-4])
+# Use stepwise regression for model selection, with bidirectional option for variable selection
+step.model <- stepAIC(fulla, direction = "both", trace = FALSE)
+# Display a summary of the final model, including coefficients, significance, and fit metrics
+summary(step.model)
+```
+
+Judah's code (EDA,PCA, Decision Trees):
+
+```{r setup, include=FALSE}
+# Initial Libraries
+library(tidyverse)
+library(ggplot2)
+library(caret)
+library(randomForest)
+revenue <- read.csv("~/Downloads/Restaurant_revenue (1).csv")
+
+# I'm creating a new column to re-evalue success by revenue per dollar on average menu price
+revenue$Profit_Stat = revenue$Monthly_Revenue / revenue$Menu_Price
+revenue <- revenue %>% mutate(Success = case_when(
+  Profit_Stat > 13 ~ "Success",
+  Profit_Stat <= 13 & Profit_Stat > 9 ~ 'Moderate Success',
+  Profit_Stat <= 9 & Profit_Stat > 6.5 ~ "Moderate Failure",
+  TRUE ~ "Failure"
+))
+
+revenue %>% head()
+```
+Notes:
+Variables are listed below
+- number of customers: count of visiting customers
+- menu price: average menu prices at restaurant
+- marketing spend: expenditure on marketing activities (scale isn't mentioned... so a store spent $3.475052?)
+- cuisine type: type of cuisine offered
+- average customer spending: average spending per customer
+- promotions: binary indicator whether or not promotions were conducted
+- reviews: number of reviews received by restaurant
+- monthly revenue: just that
+
+-A big cause for concern here is we don't know how much profit each restaurant is making because we don't know how much the ingredients for a restaurant costs. We'll have to assume that menu price would be correlated with price of ingredients and labor. So we expect higher menu price to be associated with "fancier" restaurant. So, revenue should likely be scaled by menu price otherwise, we'll just get all the "fancy" restaurants having high revenue but it's not an indicator of profit- how successful they actually are.
+
+-For EDA, the relationships I want to check: affect of marketing on reviews, marketing on profit, marketing on number of customers, number of customers on menu price, (the thing is ig a scatterplot correlation kinda says this so we'll think in more dimensions)
+- heatmaps
+- box plots
+- histograms
+- scatterplots (change color / size)
+
+```{r}
+# Visualize the distribution of the number of customers, colored by success status, to explore its impact on success.
+ggplot(data = revenue, aes(x = Number_of_Customers, fill=Success)) +
+  geom_histogram(binwidth = 5, color = "black") +
+  labs(title = "Revenue Distribution",
+       x = "Number of Customers",
+       y = "Frequency")
+
+# Investigate menu price distribution across different cuisines to explore pricing strategies and their correlation to cuisine types.
+ggplot(data = revenue, aes(x = Menu_Price, fill=Cuisine_Type)) +
+  geom_histogram(binwidth = 2, color = "black") +
+  labs(title = "Menu Price Distribution",
+       x = "Menu Price",
+       y = "Frequency")
+
+# Plot reviews against profit status by cuisine type to understand the relationship between customer feedback and profitability.
+ggplot(data = revenue, aes(x=Reviews, y = Profit_Stat, color=Cuisine_Type )) +
+  geom_point()
+
+# Display the spread and distribution of profit statistics across the dataset.
+ggplot(data=revenue, aes(x=Profit_Stat)) +
+  geom_boxplot()
+
+# Examine the relationship between marketing spend and monthly revenue by success, highlighting the effectiveness of marketing strategies.
+revenue %>% ggplot(aes(x=Marketing_Spend, y=Monthly_Revenue, color= Success, alpha=0.5)) +
+  geom_point() +
+  geom_smooth(method='lm')
+
+# Analyze the correlation between menu price and monthly revenue, suggesting higher-priced menus might lead to higher revenue.
+revenue %>% ggplot(aes(x=Menu_Price, y=Monthly_Revenue)) +
+  geom_point(alpha=0.5) +
+  geom_smooth(method='lm')
+
+# Explore how marketing spend influences customer volume, differentiated by success, to assess marketing effectiveness.
+revenue %>% ggplot(aes(x=Marketing_Spend, y=Number_of_Customers, color= Success, alpha=0.5)) +
+  geom_point() +
+  geom_smooth(method='lm')
+
+# Evaluate the relationship between the number of customers and menu pricing, considering the success rate.
+revenue %>% ggplot(aes(x=Number_of_Customers, y=Menu_Price, color= Success, alpha=0.5)) +
+  geom_point() +
+  geom_smooth(method='lm')
+
+# Visualize overall success rates within the dataset to understand success distribution.
+revenue %>% ggplot(aes(x=Success)) +
+  geom_bar()
+
+# Compare success rates across different cuisine types to identify any trends in cuisine popularity or success.
+revenue %>% ggplot(aes(x=Cuisine_Type, fill=Success)) +
+  geom_bar()
+```
+
+```{r}
+# Random Forest model
+ctrl <- trainControl(method = "cv", number = 10)
+
+predictors <- revenue %>% dplyr::select(Number_of_Customers, Marketing_Spend, Cuisine_Type, Reviews)
+target <- revenue$Success %>% as.factor()
+
+rf_model <- train(x = predictors,
+                  y = target,
+                  method = "rf",      
+                  trControl = ctrl)
+
+print(rf_model)
+```
+
+
+Hubert's Code (CV, bootstrap, model selection):
+```{r}
+# Load data
+dataset <- read.csv("~/Downloads/Restaurant_revenue (1).csv")
+
+head(dataset)
+```
+
+```{r}
+# Data Preprocessing 
+
+library(caret)
+# Convert categorical variables to factors for analysis
+dataset$Cuisine_Type <- as.factor(dataset$Cuisine_Type) # Convert Cuisine_Type to factor
+dataset$Promotions <- as.factor(dataset$Promotions) # Convert Promotions to factor
+# Preprocess numeric features: centering and scaling (for SVM)
+preprocessParams <- preProcess(dataset[, -ncol(dataset)], method = c("center", "scale"))
+# Modifies original dataset with centered and scaled values for numeric features
+dataset <- predict(preprocessParams, dataset)
+
+head(dataset)
+```
+
+```{r}
+# K-Fold Cross Validation
+set.seed(123) # Ensure reproducibility
+ctrl_kfold <- trainControl(method = "cv", number = 10, summaryFunction = defaultSummary)
+fit_kfold <- train(Monthly_Revenue ~ ., data = dataset, method = "lm", trControl = ctrl_kfold)
+rmse_kfold <- fit_kfold$results$RMSE
+```
+
+```{r}
+# LOOCV
+ctrl_loocv <- trainControl(method = "LOOCV", summaryFunction = defaultSummary)
+fit_loocv <- train(Monthly_Revenue ~ ., data = dataset, method = "lm", trControl = ctrl_loocv)
+rmse_loocv <- fit_loocv$results$RMSE
+```
+
+```{r}
+# Monte Carlo CV
+ctrl_mc <- trainControl(method = "repeatedcv", number = 10, repeats = 5, summaryFunction = defaultSummary)
+fit_mc <- train(Monthly_Revenue ~ ., data = dataset, method = "lm", trControl = ctrl_mc)
+rmse_mc <- fit_mc$results$RMSE
+```
+
+```{r}
+# Bootstrapping
+ctrl <- trainControl(method = "boot", number = 1000) # 1000 bootstrap resamples
+fit_boot <- train(Monthly_Revenue ~ ., data = dataset, method = "lm", trControl = ctrl)
+```
+
+```{r}
+# Support Vector Machine
+library(e1071)
+set.seed(123)
+ctrl <- trainControl(method = "cv", number = 10) # 10-fold CV
+fit_svm <- train(Monthly_Revenue ~ ., data = dataset, method = "svmRadial", trControl = ctrl, tuneLength = 8)
+```
+
+```{r}
+# RMSE Values (all models)
+
+rmse_boot <- fit_boot$results$RMSE
+rmse_svm <- fit_svm$results$RMSE
+# Print RMSE values for all models
+print(paste("K-Fold CV RMSE:", rmse_kfold))
+print(paste("LOOCV RMSE:", rmse_loocv))
+print(paste("Monte Carlo CV RMSE:", rmse_mc))
+print(paste("Bootstrapping RMSE:", rmse_boot))
+print(paste("SVM RMSE:", rmse_svm))
+
+# Determine the model with the lowest RMSE
+min_rmse_value <- min(rmse_kfold, rmse_loocv, rmse_mc, rmse_boot, rmse_svm)
+min_rmse_model <- switch(which.min(c(rmse_kfold, rmse_loocv, rmse_mc, rmse_boot, rmse_svm)),
+                        "K-Fold CV",
+                        "LOOCV",
+                        "Monte Carlo CV",
+                        "Bootstrapping",
+                        "SVM")
+
+# Print the best model based on RMSE
+print(paste("The best model based on RMSE is:", min_rmse_model, "with an RMSE of:", min_rmse_value))
+```
+
+```{r}
+# R^2 Values (all models)
+
+# Function to calculate R^2
+calculateR2 <- function(actual, predicted) {
+  tss <- sum((actual - mean(actual))^2)
+  rss <- sum((actual - predicted)^2)
+  r2 <- 1 - rss / tss
+  return(r2)
+}
+
+# K-fold CV 
+# Generate predictions
+predictions_kfold <- predict(fit_kfold, newdata = dataset)
+# Calculate R² using actual values from your test set and the predictions
+r_squared_kfold <- calculateR2(dataset$Monthly_Revenue, predictions_kfold)
+# Print the R-squared value
+print(paste("K-Fold CV R-squared:", r_squared_kfold))
+
+# LOOCV
+# Generate predictions
+predictions_loocv <- predict(fit_loocv, newdata = dataset)
+# Calculate R² using the actual and predicted values
+r_squared_loocv <- calculateR2(dataset$Monthly_Revenue, predictions_loocv)
+# Print the R-squared value for the LOOCV model
+print(paste("LOOCV R-squared:", r_squared_loocv))
+
+# Monte Carlo CV
+# Generate predictions 
+predictions_mc <- predict(fit_mc, newdata = dataset)
+# Calculate R² using the actual and predicted values
+r_squared_mc <- calculateR2(dataset$Monthly_Revenue, predictions_mc)
+# Print the R-squared value for the Monte Carlo CV model
+print(paste("Monte Carlo CV R-squared:", r_squared_mc))
+
+# Bootstrapping
+# Generate predictions 
+predictions_boot <- predict(fit_boot, newdata = dataset)
+# Calculate R² using the actual and predicted values
+r_squared_boot <- calculateR2(dataset$Monthly_Revenue, predictions_boot)
+# Print the R-squared value for the Bootstrapping model
+print(paste("Bootstrapping R-squared:", r_squared_boot))
+
+# Support Vector Machine
+# Generate predictions
+predictions_svm <- predict(fit_svm, newdata = dataset)
+# Calculate R² using the actual and predicted values
+r_squared_svm <- calculateR2(dataset$Monthly_Revenue, predictions_svm)
+# Print the R-squared value for the SVM model
+print(paste("SVM R-squared:", r_squared_svm))
+```
+
+
+```{r}
+# Visualizations
+library(ggplot2)
+
+rmse_data <- model_data[model_data$Metric == "RMSE", ]
+r2_data <- model_data[model_data$Metric == "R2", ]
+
+# Visualize RMSE Values
+ggplot(rmse_data, aes(x = Model, y = Value, fill = Model)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  geom_text(aes(label = sprintf("%.2f", Value)), position = position_dodge(width = 0.9), vjust = -0.25, size = 3.5) +
+  coord_flip() + # Flips the axes for a horizontal bar chart
+  labs(title = "Model Comparison by RMSE",
+       x = "Model",
+       y = "RMSE") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+
+# Visualize R^2 Values
+ggplot(r2_data, aes(x = Model, y = Value, fill = Model)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  geom_text(aes(label = sprintf("%.4f", Value)), position = position_dodge(width = 0.9), vjust = -0.25, size = 3.5) +
+  coord_flip() + # Flips the axes for a horizontal bar chart
+  labs(title = "Model Comparison by R²",
+       x = "Model",
+       y = "R²") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+```
+
+Best Model Selection:
+Given the trade-off between RMSE and R^2, if the priority is predictive accuracy (minimizing error), the Monte Carlo CV model is slightly better due to its lowest RMS. If the focus is on explaining the variance in revenue (how well the model fits the data), the SVM model is slightly better because of its highest R^2 value. Overall, the Monte Carlo CV model stands out for prediction accuracy, while the SVM provides slightly better explanatory power.
+
+```{r}
+# Summary of the linear model from K-Fold CV to see coefficients
+summary(fit_kfold$finalModel)
+
+# Or directly extract coefficients
+coefs <- coef(fit_kfold$finalModel)
+print(coefs)
+```
+
+```{r}
+# Check variable importance for models 
+# For the K-Fold model
+importance <- varImp(fit_kfold, scale = FALSE)
+print(importance)
+
+# For the LOOCV model
+importance_loocv <- varImp(fit_loocv, scale = FALSE)
+print(importance_loocv)
+
+# For the Monte Carlo CV model
+importance_mc <- varImp(fit_mc, scale = FALSE)
+print(importance_mc)
+
+# For the Bootstrapping model
+importance_boot <- varImp(fit_boot, scale = FALSE)
+print(importance_boot)
+```
+
+Based on these scores, "Number_of_Customers" (41.43) is the most influential in predicting restaurant revenue, having the highest importance score. "Marketing_Spend" (15.08) is the second most influential factor is marketing expenditure. This indicates that the amount spent on marketing activities significantly affects the restaurant's revenue. "Menu_Price" (12.88) is the third most influential factor, as the price of menu items also plays a crucial role in determining revenue. This factor's importance suggests that higher menu prices can positively impact revenue, assuming that the demand remains relatively inelastic or that the restaurant successfully offers value justifying the prices.
+
+```{r}
+library(DALEX)
+
+# Assuming 'fit_svm' is your trained model and 'dataset' is your dataset
+# Create an explainer for the SVM model
+explainer_svm <- explain(fit_svm, data = dataset[, -ncol(dataset)], y = dataset$Monthly_Revenue)
+
+# Calculate feature importance
+fi_svm <- model_parts(explainer_svm, loss_function = loss_root_mean_square)
+
+# Customize the plot with a title and remove unwanted labels
+p <- plot(fi_svm) +
+  labs(
+    title = "Feature Importance for Monthly Revenue Prediction",
+    subtitle = "Assessing the Impact of Each Feature on Model's RMSE",
+    caption = ""  # Removes the default caption which may contain "train.formula"
+  ) + 
+  theme_minimal() +  # Applies a minimalistic theme
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),  # Customize the plot title
+    plot.subtitle = element_text(size = 12),  # Customize the plot subtitle
+    axis.title.x = element_text(size = 12),  # Customize x axis title
+    axis.title.y = element_text(size = 12),  # Customize y axis title
+    axis.text = element_text(size = 10),  # Customize axis text size
+    legend.position = "none",  # Remove the legend to eliminate "train.formula"
+    plot.caption = element_blank()  # Ensure the caption is blank
+  ) +
+  scale_fill_brewer(palette = "Pastel1")  # Use a different color palette
+
+# Print the customized plot
+print(p)
+```
+
+The uploaded bar chart illustrates the feature importance derived from a predictive model, with the magnitude of each feature's importance indicated by the length of the bars. The importance is measured in terms of the increase in Root Mean Square Error (RMSE) when the feature is permuted (shuffled), which reflects the feature's contribution to the predictive power of the model. Here's the analysis based on the visual information:
+
+Number_of_Customers: This feature has the longest bar, signifying the highest increase in RMSE when it is permuted. It implies that the number of customers is the most significant predictor of restaurant revenue. Intuitively, this makes sense as more customers generally lead to higher sales and revenue.
+
+Marketing_Spend: The second-longest bar indicates that marketing spend is also a critical factor in predicting revenue. A significant increase in RMSE upon permutation suggests that how much the restaurant invests in marketing has a strong influence on attracting customers and thus on the revenue.
+
+Menu_Price: The third factor in terms of importance is the price of the menu items. The model suggests that menu pricing is an important predictor of revenue, but less so than the number of customers or marketing spend.
+
+Cuisine_Type: This categorical variable shows a moderate level of importance. Since this bar chart does not differentiate between different cuisine types, it's not clear which specific cuisine contributes most to the revenue prediction. However, it does indicate that the type of cuisine is a factor worth considering in the revenue model.
+
+Brett's Code (LDA, QDA, EDA (multicollinearity)):
+```{r}
+library(ISLR)
+library(MASS)
+library(caret)
+library(dplyr)
+
+revenue <- read.csv("~/Downloads/Restaurant_revenue (1).csv")
+head(revenue)
+#summary(revenue)
+```
+## Multicollinearity
+```{r}
+library(car)
+
+# Create linear model
+model <- lm(Monthly_Revenue ~ Cuisine_Type + Average_Customer_Spending + Menu_Price
++ Marketing_Spend + Promotions+ Reviews + Number_of_Customers, data= revenue)
+
+# Calculate the VIF for each predictor variable in the model
+vif(model)
+```
+
+```{r}
+# Standardize the data (mean of 0,standard deviation of 1)
+revenue[1:3] <- scale(revenue[1:3])
+revenue[5:8] <- scale(revenue[5:8])
+#summary(revenue)
+# Create the new column to distinguish class among restaurants based on conditions
+# Got .688 and .718 as the lower and upper quartile respectively
+revenue <- revenue %>%
+ mutate(Monthly_Revenue_Class = case_when(
+    Monthly_Revenue < -.688 ~ "struggling",
+    Monthly_Revenue >= -.688 & Monthly_Revenue <= .718 ~ "solid",
+    Monthly_Revenue > .718 ~ "excelling"
+  ))
+
+# View the updated data frame
+revenue
+```
+
+## Linear Discriminant Analysis
+```{r}
+
+# Assuming 'revenue' is your data set
+set.seed(1) # For reproducibility
+trainIndex <- sample(1:nrow(revenue), 0.7 *nrow(revenue)) #70% training
+train_data <- revenue[trainIndex, ]
+test_data <- revenue[-trainIndex, ]
+
+# Fit the lda model
+lda_model <- lda(Monthly_Revenue_Class ~ Cuisine_Type + Monthly_Revenue + Average_Customer_Spending + Menu_Price + Marketing_Spend + Promotions+ Reviews + Number_of_Customers, data = train_data)
+
+lda_model_2 <- lda(Monthly_Revenue_Class ~ Number_of_Customers + Marketing_Spend, data = train_data)
+lda_model_2
+
+# Predict 
+predicted <- predict(lda_model, data = train_data)
+predicted2 <- predict(lda_model_2, data = train_data)
+#head(predicted$x)
+
+predicted$class <- predicted$class[1:length(test_data$Monthly_Revenue_Class)]
+predicted2$class <- predicted2$class[1:length(test_data$Monthly_Revenue_Class)]
+
+# Percentage of observations the LDA Model correctly predicted 
+mean1 = mean(predicted$class == test_data$Monthly_Revenue_Class)
+mean1
+mean2 = mean(predicted2$class == test_data$Monthly_Revenue_Class)
+mean2
+```
+
+```{r}
+# Generates grid for predictor variables
+grid <- expand.grid(Number_of_Customers = seq(min(train_data$Number_of_Customers), max(train_data$Number_of_Customers), length.out = 100),
+                    Marketing_Spend = seq(min(train_data$Marketing_Spend), max(train_data$Marketing_Spend), length.out = 100))
+
+# Predict classes for the grid points
+grid$predicted_class <- predict(lda_model_2, newdata = grid)$class
+
+# Visualize the decision boundaries
+library(ggplot2)
+ggplot(data = grid, aes(x = Number_of_Customers, y = Marketing_Spend, color = predicted_class)) +
+  geom_point(alpha = 0.5) +
+  theme_minimal() +
+  labs(title = "Decision Boundary Visualization for LDA Model", x = "Number of Customers", y = "Marketing Spend")
+```
+
+## Quadratic Discriminant Analysis
+```{r}
+# Fit qda model to training data
+qda_model <- qda(Monthly_Revenue_Class ~ Cuisine_Type + Monthly_Revenue + Average_Customer_Spending + Menu_Price + Marketing_Spend + Promotions+ Reviews + Number_of_Customers, data = train_data)
+qda_model
+
+# Make predictions on test data
+predictions_QDA = data.frame(predict(qda_model, test_data))
+
+# Add the predictions in a separate column 
+predictions_QDA = cbind(test_data, predictions_QDA)
+
+# Count how good the predictions were
+predictions_QDA %>%
+  count(class, Monthly_Revenue_Class)
+
+# Calculate accuracy of qda model
+predictions_QDA %>%
+  summarize(score = mean(class == Monthly_Revenue_Class))
+```
+
+
+
+
+
+
